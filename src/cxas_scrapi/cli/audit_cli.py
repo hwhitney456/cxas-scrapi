@@ -156,7 +156,14 @@ def handle_audit(args: argparse.Namespace) -> None:
 
     expectations = [{
         "title": "Audio Mismatch Audit",
-        "expectation": "The spoken audio in the turn must exactly match the text transcript in wording and meaning.",
+        "expectation": (
+            "The spoken audio in the turn must semantically match the text transcript. "
+            "Ignore minor differences in wording, formatting (e.g., '1 8 0' vs 'one eight zero'), "
+            "filler words, or contractions, as long as the core meaning, intent, and instructions "
+            "are identical. Flag as FAILED only if there is a semantic contradiction (e.g., 'required' "
+            "vs 'not required'), a change in key information (like dates, identifiers, or service names), "
+            "or if critical information is added or omitted in the audio that changes the meaning."
+        ),
         "requires_audio_paths": True
     }]
 
