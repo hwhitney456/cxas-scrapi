@@ -30,6 +30,14 @@ from typing import Any, Dict, List
 logger = logging.getLogger(__name__)
 
 def reconstruct_trace(raw_turns: List[Dict[str, Any]]) -> List[str]:
+    """Reconstructs a readable conversation trace from database raw turns.
+
+    Args:
+        raw_turns: A list of raw turn dictionaries from the conversation history.
+
+    Returns:
+        A list of strings formatted as 'User: ...' and 'Agent: ...' alternating.
+    """
     trace = []
     for turn in raw_turns:
         user_text = ""
@@ -160,7 +168,10 @@ def handle_audit(args: argparse.Namespace) -> None:
             "The spoken audio in the turn must semantically match the text transcript. "
             "Ignore minor differences in wording, formatting (e.g., '1 8 0' vs 'one eight zero'), "
             "filler words, or contractions, as long as the core meaning, intent, and instructions "
-            "are identical. Flag as FAILED only if there is a semantic contradiction (e.g., 'required' "
+            "are identical. Ignore the omission or addition of polite fillers, greetings, or "
+            "sentences that explain why information is being requested (e.g., 'I need that so I can help you', "
+            "'to get started'), as long as the core request or instruction itself is present and correct. "
+            "Flag as FAILED only if there is a semantic contradiction (e.g., 'required' "
             "vs 'not required'), a change in key information (like dates, identifiers, or service names), "
             "or if critical information is added or omitted in the audio that changes the meaning. "
             "\n\nFormatting Instruction for justification on failure:\n"
