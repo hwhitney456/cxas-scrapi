@@ -162,7 +162,13 @@ def handle_audit(args: argparse.Namespace) -> None:
             "filler words, or contractions, as long as the core meaning, intent, and instructions "
             "are identical. Flag as FAILED only if there is a semantic contradiction (e.g., 'required' "
             "vs 'not required'), a change in key information (like dates, identifiers, or service names), "
-            "or if critical information is added or omitted in the audio that changes the meaning."
+            "or if critical information is added or omitted in the audio that changes the meaning. "
+            "\n\nFormatting Instruction for justification on failure:\n"
+            "If the audit FAILS, the justification MUST be formatted as a numbered list of issues. "
+            "Each issue must reference the Turn number where it occurred and describe the mismatch clearly. "
+            "Example:\n"
+            "1. Turn 3: Audio omitted 'please retry'.\n"
+            "2. Turn 5: Audio said '123' but text transcript shows '456'."
         ),
         "requires_audio_paths": True
     }]
