@@ -109,6 +109,12 @@ def populate_audit_parser(subparsers):
         default="gemini-2.5-flash",
         help="Gemini model to use for evaluation. Defaults to gemini-2.5-flash.",
     )
+    parser_audit.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit the number of conversations to audit.",
+    )
     parser_audit.set_defaults(func=handle_audit)
 
 def handle_audit(args: argparse.Namespace) -> None:
@@ -128,6 +134,9 @@ def handle_audit(args: argparse.Namespace) -> None:
             )
             session_ids = [c.name.split("/")[-1] for c in conversations]
             print(f"Found {len(session_ids)} sessions to audit.")
+            if args.limit:
+                session_ids = session_ids[:args.limit]
+                print(f"Limiting audit to the first {args.limit} sessions.")
         except Exception as e:
             print(f"Failed to list conversations: {e}")
             sys.exit(1)
@@ -143,7 +152,8 @@ def handle_audit(args: argparse.Namespace) -> None:
         location=history_client.location or "global",
         credentials=history_client.creds,
     )
-    
+    eval_utils = EvalUtils(app_name=args.app_name, creds=history_client.creds)
+
     expectations = [{
         "title": "Audio Mismatch Audit",
         "expectation": "The spoken audio in the turn must exactly match the text transcript in wording and meaning.",
@@ -228,15 +238,25 @@ def handle_audit(args: argparse.Namespace) -> None:
             print(f"  Gemini evaluation failed: {e}")
             continue
 
-    # 3. Write all results to BigQuery
+        # Batch write to BigQuery
+        if len(rows) >= 5:
+            try:
+                df = pd.DataFrame(rows)
+                print(f"Writing batch of {len(df)} results to BigQuery...")
+                eval_utils.to_bigquery(df, args.bq_table)
+                rows.clear()
+            except Exception as e:
+                print(f"Failed to write batch to BigQuery: {e}")
+                rows.clear()
+
+    # 3. Write remaining results to BigQuery
     if rows:
-        df = pd.DataFrame(rows)
-        eval_utils = EvalUtils(app_name=args.app_name, creds=history_client.creds)
         try:
-            print(f"Writing {len(df)} results to BigQuery table {args.bq_table}...")
+            df = pd.DataFrame(rows)
+            print(f"Writing final batch of {len(df)} results to BigQuery...")
             eval_utils.to_bigquery(df, args.bq_table)
         except Exception as e:
-            print(f"Failed to write to BigQuery: {e}")
+            print(f"Failed to write final batch to BigQuery: {e}")
             sys.exit(1)
     else:
-        print("No audit results to write.")
+        print("No remaining audit results to write.")
