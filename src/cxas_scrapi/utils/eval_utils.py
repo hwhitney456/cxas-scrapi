@@ -1461,25 +1461,44 @@ def evaluate_expectations(
             if i % 2 == 1:
                 sim_turn = (i - 1) // 2
                 audio_path = audio_paths.get(sim_turn)
-                if audio_path and os.path.exists(audio_path):
-                    try:
-                        with open(audio_path, "rb") as f:
+                if audio_path:
+                    if audio_path.startswith("gs://"):
+                        try:
                             contents.append(
-                                genai.types.Part.from_bytes(
-                                    data=f.read(), mime_type="audio/wav"
+                                genai.types.Part.from_uri(
+                                    file_uri=audio_path, mime_type="audio/wav"
                                 )
                             )
                             logger.info(
-                                "Interleaved audio %s for turn %s",
+                                "Interleaved GCS audio %s for turn %s",
                                 audio_path,
                                 sim_turn,
                             )
-                    except Exception as e:
-                        logger.error(
-                            "Failed to read or wrap audio file %s: %s",
-                            audio_path,
-                            e,
-                        )
+                        except Exception as e:
+                            logger.error(
+                                "Failed to wrap GCS audio file %s: %s",
+                                audio_path,
+                                e,
+                            )
+                    elif os.path.exists(audio_path):
+                        try:
+                            with open(audio_path, "rb") as f:
+                                contents.append(
+                                    genai.types.Part.from_bytes(
+                                        data=f.read(), mime_type="audio/wav"
+                                    )
+                                )
+                                logger.info(
+                                    "Interleaved local audio %s for turn %s",
+                                    audio_path,
+                                    sim_turn,
+                                )
+                        except Exception as e:
+                            logger.error(
+                                "Failed to read or wrap local audio file %s: %s",
+                                audio_path,
+                                e,
+                            )
         prompt = contents
     else:
         prompt = prompt_text

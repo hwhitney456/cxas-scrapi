@@ -40,6 +40,7 @@ from cxas_scrapi.cli.app import (
     apps_get,
     apps_list,
 )
+from cxas_scrapi.cli.audit_cli import populate_audit_parser
 from cxas_scrapi.cli.create_local import handle_local_create
 from cxas_scrapi.cli.insights_cli import populate_insights_parser
 from cxas_scrapi.cli.llm_lint import llm_lint
@@ -1375,6 +1376,7 @@ def get_parser() -> argparse.ArgumentParser:
 
     parser_evals = subparsers.add_parser("evals", help="Manage evaluations.")
     evals_subparsers = parser_evals.add_subparsers(dest="evals_command")
+    populate_audit_parser(evals_subparsers)
     parser_report = evals_subparsers.add_parser(
         "report",
         help="Generate combined report for golden + simulation results.",
