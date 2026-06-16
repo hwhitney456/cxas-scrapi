@@ -21,11 +21,55 @@ import sys
 import pandas as pd
 
 from cxas_scrapi.core.conversation_history import ConversationHistory
-from cxas_scrapi.utils.eval_utils import EvalUtils, evaluate_expectations
+from cxas_scrapi.utils.eval_utils import EvalUtils, evaluate_expectations, ExpectationStatus
 from cxas_scrapi.utils.gcs_utils import GCSUtils
 from cxas_scrapi.utils.gemini import GeminiGenerate
 
+from typing import Any, Dict, List
+
 logger = logging.getLogger(__name__)
+
+def reconstruct_trace(raw_turns: List[Dict[str, Any]]) -> List[str]:
+    trace = []
+    for turn in raw_turns:
+        user_text = ""
+        agent_parts = []
+        
+        messages = turn.get("messages", [])
+        for msg in messages:
+            role = msg.get("role")
+            chunks = msg.get("chunks", [])
+            
+            # Extract text/transcript
+            text = " ".join([c.get("text", c.get("transcript", "")) for c in chunks if "text" in c or "transcript" in c]).strip()
+            
+            if role == "user":
+                if text:
+                    user_text = text
+            elif role in ("root_agent", "agent"):
+                if text:
+                    agent_parts.append(text)
+                for chunk in chunks:
+                    if "tool_call" in chunk:
+                        tc = chunk["tool_call"]
+                        tool_name = tc.get("display_name", tc.get("name", tc.get("tool", "")))
+                        agent_parts.append(f"[Tool Call: {tool_name}]")
+                    elif "tool_response" in chunk:
+                        tr = chunk["tool_response"]
+                        tool_name = tr.get("display_name", tr.get("name", tr.get("tool", "")))
+                        agent_parts.append(f"[Tool Response: {tool_name}]")
+        
+        if user_text:
+            trace.append(f"User: {user_text}")
+        else:
+            trace.append("User: <silent>")
+            
+        if agent_parts:
+            trace.append(f"Agent: {' '.join(agent_parts)}")
+        else:
+            trace.append("Agent: <silent>")
+            
+    return trace
 
 def populate_audit_parser(subparsers):
     """Adds the 'audit-audio' command to the evals subparsers."""
@@ -94,7 +138,11 @@ def handle_audit(args: argparse.Namespace) -> None:
 
     # Initialize utility clients
     gcs_utils = GCSUtils(creds=history_client.creds)
-    gemini_client = GeminiGenerate(creds=history_client.creds)
+    gemini_client = GeminiGenerate(
+        project_id=history_client.project_id,
+        location=history_client.location or "global",
+        credentials=history_client.creds,
+    )
     
     expectations = [{
         "title": "Audio Mismatch Audit",
@@ -112,16 +160,12 @@ def handle_audit(args: argparse.Namespace) -> None:
         try:
             conversation = history_client.get_conversation(conversation_id=session_id)
             conv_dict = type(conversation).to_dict(conversation)
-            yaml_transcript = ConversationHistory.conversation_dict_to_yaml(conv_dict)
         except Exception as e:
             print(f"  Failed to fetch conversation history: {e}")
             continue
 
         # Reconstruct detailed trace
-        trace = []
-        for turn in yaml_transcript.get("turns", []):
-            for role, text in turn.items():
-                trace.append(f"{role}: {text}")
+        trace = reconstruct_trace(conv_dict.get("turns", []))
 
         if not trace:
             print(f"  No turns found for session {session_id}")
@@ -143,6 +187,14 @@ def handle_audit(args: argparse.Namespace) -> None:
         audio_paths = {}
         for uri in gcs_files:
             filename = uri.split("/")[-1]
+            if "full" in filename.lower() or "session" in filename.lower():
+                continue
+            prod_match = re.search(r'agent-turn-(\d+)', filename)
+            if prod_match:
+                turn_num = int(prod_match.group(1)) - 1
+                audio_paths[turn_num] = uri
+                continue
+            
             match = re.search(r'(?:turn_)?(\d+)', filename)
             if match:
                 turn_num = int(match.group(1))
@@ -163,14 +215,15 @@ def handle_audit(args: argparse.Namespace) -> None:
                 audio_paths=audio_paths,
             )
             for res in results:
+                passed = res.status == ExpectationStatus.MET
                 rows.append({
                     "session_id": session_id,
                     "timestamp": pd.Timestamp.now(tz="UTC"),
                     "expectation": res.expectation,
-                    "passed": res.passed,
-                    "explanation": res.explanation
+                    "passed": passed,
+                    "explanation": res.justification
                 })
-                print(f"  Audit Result: {'PASSED' if res.passed else 'FAILED'}")
+                print(f"  Audit Result: {'PASSED' if passed else 'FAILED'}")
         except Exception as e:
             print(f"  Gemini evaluation failed: {e}")
             continue

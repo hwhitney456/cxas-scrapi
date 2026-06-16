@@ -87,7 +87,11 @@ class ConversationHistory(Common):
                 role = message.get("role", "")
                 chunks = message.get("chunks", [])
                 text = " ".join(
-                    [c.get("text", "") for c in chunks if "text" in c]
+                    [
+                        c.get("text", c.get("transcript", ""))
+                        for c in chunks
+                        if "text" in c or "transcript" in c
+                    ]
                 )
                 if text:
                     # role = "agent name" for agent responses and tool calls
