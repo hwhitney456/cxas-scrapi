@@ -119,7 +119,6 @@ class EnhancedSimRunner(SimulationEvals):
         modality: str = "text",
         use_tool_fakes: bool = False,
         background_noise_file: Optional[str] = None,
-        capture_agent_audio: bool = False,
         **kwargs: Any,
     ) -> LLMUserConversation:
         """Run a simulated conversation with variable injection."""
@@ -131,8 +130,6 @@ class EnhancedSimRunner(SimulationEvals):
             genai_model=model,
             test_case=test_case,
         )
-        eval_conv.agent_audio_paths = {}
-        current_sim_turn = 0
 
         session_params = test_case.get("session_parameters", {})
 
@@ -152,22 +149,20 @@ class EnhancedSimRunner(SimulationEvals):
         while user_utterance:
             for attempt in range(self.max_retries):
                 try:
-                    run_kwargs = {
+                    kwargs = {
                         "session_id": session_id,
                         "text": user_utterance,
                         "modality": modality,
                         "use_tool_fakes": use_tool_fakes,
-                        "turn_num": current_sim_turn,
-                        "capture_agent_audio": capture_agent_audio,
                     }
                     # Inject variables on first turn only
                     if first_turn and session_params:
-                        run_kwargs["variables"] = session_params
+                        kwargs["variables"] = session_params
                         first_turn = False
                     else:
                         first_turn = False
 
-                    response = self.sessions_client.run(**run_kwargs)
+                    response = self.sessions_client.run(**kwargs)
                     break
                 except Exception as e:
                     if attempt == self.max_retries - 1:
@@ -181,12 +176,6 @@ class EnhancedSimRunner(SimulationEvals):
 
             if console_logging:
                 self.sessions_client.parse_result(response)
-
-            # Extract and save the agent turn audio WAV if present in response.
-            if response and getattr(response, "agent_audio_paths", None):
-                audio_path = response.agent_audio_paths.get(0)
-                if audio_path:
-                    eval_conv.agent_audio_paths[current_sim_turn] = audio_path
 
             agent_text, trace_chunks, session_ended = self._parse_agent_response(response)
             detailed_trace.append("\n".join(trace_chunks))
@@ -215,8 +204,6 @@ class EnhancedSimRunner(SimulationEvals):
             if user_utterance:
                 detailed_trace.append(f"User: {user_utterance}")
 
-            current_sim_turn += 1
-
         if console_logging:
             print("\n--- Conversation Complete ---")
             for step_prog in eval_conv.steps_progress:
@@ -224,13 +211,7 @@ class EnhancedSimRunner(SimulationEvals):
                 print(f"  {status_icon} {step_prog.step.goal[:80]} → {step_prog.status.value}")
 
         # Evaluate expectations
-        self._evaluate_expectations(
-            eval_conv,
-            detailed_trace,
-            model,
-            console_logging,
-            capture_agent_audio=capture_agent_audio,
-        )
+        self._evaluate_expectations(eval_conv, detailed_trace, model, console_logging)
 
         # Attach extra data for reporting
         eval_conv._session_id = session_id
@@ -388,7 +369,6 @@ def cmd_run(args):
         modality=modality,
         verbose=args.verbose,
         use_tool_fakes=args.use_tool_fakes,
-        capture_agent_audio=args.capture_agent_audio,
     )
 
     # Summary
@@ -481,12 +461,6 @@ def main():
         action="store_true",
         default=False,
         help="Use fake tools if available",
-    )
-    p_run.add_argument(
-        "--capture-agent-audio",
-        action="store_true",
-        default=False,
-        help="Capture real-time agent output audio as WAV files",
     )
     p_run.add_argument(
         "--gcs-report-path",
